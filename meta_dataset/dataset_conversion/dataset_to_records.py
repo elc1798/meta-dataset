@@ -54,6 +54,7 @@ import six
 from six.moves import range
 import six.moves.cPickle as pkl
 import tensorflow.compat.v1 as tf
+from tqdm import tqdm
 
 # Datasets in the same order as reported in the article.
 # 'ilsvrc_2012_data_root' is already defined in imagenet_specification.py.
@@ -352,6 +353,8 @@ def write_tfrecord_from_image_files(class_files,
       img = img.convert('RGB')
       img_needs_encoding = True
     if bbox is not None:
+      # https://github.com/google-research/meta-dataset/issues/91 - Bruh what is Google even doing????
+      bbox = list(bbox)
       img = img.crop(bbox)
       img_needs_encoding = True
     if invert_img:
@@ -866,7 +869,7 @@ class QuickdrawConverter(DatasetConverter):
       split: an instance of learning_spec.Split
       split_class_names: the list of names of classes belonging to split
     """
-    for class_name in split_class_names:
+    for class_name in tqdm(split_class_names):
       self.classes_per_split[split] += 1
       class_label = len(self.class_names)
       class_records_path = os.path.join(
@@ -1352,7 +1355,7 @@ class MSCOCOConverter(DatasetConverter):
       raise ValueError('Directory %s does not exist' % image_dir)
     self.image_dir = image_dir
 
-    annotation_path = os.path.join(data_root, annotation_json_name)
+    annotation_path = os.path.join(data_root, "annotations", annotation_json_name)
     if not tf.io.gfile.exists(annotation_path):
       raise ValueError('Annotation file %s does not exist' % annotation_path)
     with tf.io.gfile.GFile(annotation_path, 'r') as json_file:
@@ -1458,7 +1461,7 @@ class MSCOCOConverter(DatasetConverter):
           self.records_path, self.dataset_spec.file_pattern.format(class_id))
       class_tf_record_writers.append(tf.python_io.TFRecordWriter(output_path))
 
-    for i, annotation in enumerate(self.coco_instance_annotations):
+    for i, annotation in enumerate(tqdm(self.coco_instance_annotations)):
       try:
         image_crop, class_id = get_image_crop_and_class_id(annotation)
       except IOError:
@@ -1468,8 +1471,7 @@ class MSCOCOConverter(DatasetConverter):
         logging.warning('Image can not be cropped and will be skipped.')
         continue
 
-      logging.info('writing image %d/%d', i,
-                   len(self.coco_instance_annotations))
+      # logging.info('writing image %d/%d', i, len(self.coco_instance_annotations))
 
       # TODO(manzagop): refactor this, e.g. use write_tfrecord_from_image_files.
       image_crop_bytes = io.BytesIO()

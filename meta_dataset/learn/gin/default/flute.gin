@@ -49,3 +49,8 @@ num_film_sets = 8
 # without remapping.
 benchmark.train_datasets = 'ilsvrc_2012,aircraft,cu_birds,omniglot,quickdraw,vgg_flower,dtd,fungi'
 benchmark.eval_datasets = 'ilsvrc_2012,aircraft,cu_birds,omniglot,quickdraw,vgg_flower,dtd,fungi'
+
+DataConfig.shuffle_buffer_size = 256
+# DataConfig.read_buffer_size_bytes = 1048576  # 1 MB (1024**2)
+DataConfig.read_buffer_size_bytes = 524288
+DataConfig.num_prefetch = 100
