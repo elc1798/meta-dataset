@@ -55,7 +55,7 @@ verify_dataspec:
 .PHONY: repro_flute
 repro_flute:
 	PYTHONPATH=${PYTHONPATH}:../task_adaptation python3 -m meta_dataset.train_flute \
-		--train_checkpoint_dir=$(CHECKPOINTS_DIR) \
+		--train_checkpoint_dir=$(CHECKPOINTS_DIR)/flute_repro \
 		--summary_dir=$(CHECKPOINTS_DIR) \
 		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
 		--alsologtostderr \
