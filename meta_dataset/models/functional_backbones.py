@@ -289,7 +289,6 @@ def bn_flailnet(x,
     # Compute the mean and var of the current batch. [1, 1, 1, num channels].
     mean, var = tf.nn.moments(
         x, axes=list(range(len(x.shape) - 1)), keep_dims=True)
-    num_channels = mean.shape[-1]
 
     if moments is not None:
       # A common use case for this: passing in the moments computed from the
@@ -303,15 +302,16 @@ def bn_flailnet(x,
     moments_vars += [var]
 
     # Part 2: Determine scale/shift based on the film embedding
-    with tf.variable_scope('film_scale'):
-      film_scale, dense_params = dense(flailnet_film_embed, num_channels, film_weight_decay, activation_fn=None, params=params)
+    with tf.variable_scope('film_shift'):
+      film_shift, dense_params = dense(flailnet_film_embed, mean.shape[-1], film_weight_decay, activation_fn=None, params=params)
       params_keys.extend(dense_params.keys())
       params_vars.extend(dense_params.values())
 
-    with tf.variable_scope('film_shift'):
-      film_shift = dense(flailnet_film_embed, 1, film_weight_decay, activation_fn=None, param=params)
+    with tf.variable_scope('film_scale'):
+      film_scale, dense_params = dense(flailnet_film_embed, var.shape[-1], film_weight_decay, activation_fn=None, params=params)
       params_keys.extend(dense_params.keys())
       params_vars.extend(dense_params.values())
+
     # Reshape to [1, 1, 1, num_channels].
     film_scale = tf.reshape(film_scale, [1, 1, 1, -1])
     film_shift = tf.reshape(film_shift, [1, 1, 1, -1])
@@ -509,7 +509,7 @@ def dense(x, output_size, weight_decay, activation_fn=tf.nn.relu, params=None):
     scope_name = tf.get_variable_scope().name
 
     if len(x.shape) > 2:
-      x = tf.layers.flatten(x),
+      x = tf.layers.flatten(x)
     input_size = x.get_shape().as_list()[-1]
 
     w_name = scope_name + '/kernel'
@@ -593,6 +593,11 @@ def _bn_wrapper(
         backprop_through_moments=backprop_through_moments)
 
 
+class FlailnetFilmSelector:
+  def __init__(self, film_embed):
+    self.film_embed = film_embed
+
+
 def conv_bn(
     x,
     conv_size,
@@ -608,6 +613,23 @@ def conv_bn(
     film_selector=None
 ):
   """A block that performs convolution, followed by batch-norm."""
+  # This is kind of hacky but prevents me from needing to duplicate a bunch of code. If film_selector is a
+  # FlailnetFilmSelector, calls flailnet_conv_bn. This means that we can hijack the film_selector parameter normally
+  # used for FLUTE and use it as a flag to use Flailnet - This even hijacks the _resnet network generator function.
+  if type(film_selector) is FlailnetFilmSelector:
+    return flailnet_conv_bn(
+      x,
+      film_selector.film_embed,
+      conv_size,
+      depth,
+      stride,
+      weight_decay,
+      padding=padding,
+      params=params,
+      moments=moments,
+      is_training=is_training,
+      rate=rate,
+      backprop_through_moments=backprop_through_moments)
   params_keys, params_vars = [], []
   moments_keys, moments_vars = [], []
   x, conv_params = conv(
@@ -648,8 +670,6 @@ def flailnet_conv_bn(
     depth,
     stride,
     weight_decay,
-    film_shift=0,
-    film_scale=1,
     padding='SAME',
     params=None,
     moments=None,
@@ -781,13 +801,11 @@ def bottleneck(
 @gin.configurable('flailnet_film_generator', allowlist=['flailnet_embed_dim'])
 def flailnet_film_generator(
     x,
-    is_training,
     weight_decay,
     scope,
     flailnet_embed_dim=1024,
     reuse=tf.AUTO_REUSE,
     params=None,
-    backprop_through_moments=True,
     use_bounded_activation=False
 ):
   """Returns an embedding of the input image used to generate arbitrary FiLM parameters for any flail_bn layer
@@ -803,13 +821,10 @@ def flailnet_film_generator(
         filters_out,
         stride,
         weight_decay,
-        params=params,
-        is_training=is_training,
-        backprop_through_moments=backprop_through_moments,
-        film_selector=None)
+        params=params)
       params_keys.extend(conv_params.keys())
       params_vars.extend(conv_params.values())
-      return h, conv_params
+      return h
 
     with tf.variable_scope('film_gen_conv1'):
       h = _film_gen_conv(x, 7, 64, stride=2)
@@ -821,10 +836,17 @@ def flailnet_film_generator(
       h = _film_gen_conv(h, 5, 1, stride=1)
       h = relu(h, use_bounded_activation=use_bounded_activation)
     with tf.variable_scope('film_gen_batch_reduce'):
+      # I originally wanted to do the below but:
+      #  1. With the batch dim being a 'None' placeholder, TF is confused when dim 0 and 3 are transposed.
+      #  2. This wouldn't make sense - if you convolve, you are weighing each sample differently, but they should be
+      #  equally weighted.
+      #
       # Trick - convolve using the batch dim as filter dim
-      h = tf.transpose(h, perm=[3, 1, 2, 0])
-      h = _film_gen_conv(h, 1, 1, stride=1)
-      h = relu(h, use_bounded_activation=use_bounded_activation)
+      # h = tf.transpose(h, perm=[3, 1, 2, 0])
+      # h = _film_gen_conv(h, 1, 1, stride=1)
+      # h = relu(h, use_bounded_activation=use_bounded_activation)
+      # Solution: Just use a reduce_mean
+      h = tf.reduce_mean(h, 0, keepdims=True)
     with tf.variable_scope('film_dense'):
       film_embed, dense_params = dense(h, flailnet_embed_dim, weight_decay, params=params)
       params_keys.extend(dense_params.keys())
@@ -1120,6 +1142,52 @@ def flute_resnet(x,
       deeplab_alignment=deeplab_alignment,
       keep_spatial_dims=keep_spatial_dims,
       film_selector=film_selector)
+
+
+@gin.configurable('flailnet_resnet', allowlist=['weight_decay'])
+def flailnet_resnet(x,
+                    is_training,
+                    weight_decay,
+                    params=None,
+                    moments=None,
+                    reuse=tf.AUTO_REUSE,
+                    scope='resnet18',
+                    backprop_through_moments=True,
+                    use_bounded_activation=False,
+                    max_stride=None,
+                    deeplab_alignment=True,
+                    keep_spatial_dims=False,
+                    film_selector=None):
+  """ResNet18 embedding function for Flailnet."""
+  # flailnet_film_generator returns: {'film_embed': film_embed, 'params': params}
+  _film_embed = flailnet_film_generator(
+      x,
+      weight_decay,
+      scope,
+      reuse=tf.AUTO_REUSE,
+      params=params,
+      use_bounded_activation=use_bounded_activation)
+  #resnet returns: {'embeddings': x, 'params': params, 'moments': moments}
+  rn18 = _resnet(
+      x,
+      is_training,
+      weight_decay,
+      scope,
+      reuse=reuse,
+      params=params,
+      moments=moments,
+      backprop_through_moments=backprop_through_moments,
+      use_bounded_activation=use_bounded_activation,
+      blocks=(2, 2, 2, 2),
+      max_stride=max_stride,
+      deeplab_alignment=deeplab_alignment,
+      keep_spatial_dims=keep_spatial_dims,
+      film_selector=FlailnetFilmSelector(_film_embed["film_embed"]))
+  # Update the params dict - Note that params are OrderedDicts so _film_embed params should come first
+  params = _film_embed["params"]
+  params.update(rn18["params"])
+  rn18["params"] = params
+  return rn18
 
 
 @gin.configurable(

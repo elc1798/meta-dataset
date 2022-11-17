@@ -56,8 +56,19 @@ verify_dataspec:
 repro_flute:
 	PYTHONPATH=${PYTHONPATH}:../task_adaptation python3 -m meta_dataset.train_flute \
 		--train_checkpoint_dir=$(CHECKPOINTS_DIR)/flute_repro \
-		--summary_dir=$(CHECKPOINTS_DIR) \
+		--summary_dir=$(CHECKPOINTS_DIR)/flute_repro \
 		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
 		--alsologtostderr \
 		--gin_config=meta_dataset/learn/gin/default/flute.gin \
 		--gin_bindings="Trainer_flute.experiment_name='flute'"
+
+
+.PHONY: flailnet
+flailnet:
+	PYTHONPATH=${PYTHONPATH}:../task_adaptation python3 -m meta_dataset.train_flute \
+		--train_checkpoint_dir=$(CHECKPOINTS_DIR)/flailnet1 \
+		--summary_dir=$(CHECKPOINTS_DIR)/flailnet1 \
+		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
+		--alsologtostderr \
+		--gin_config=meta_dataset/learn/gin/default/flailnet.gin \
+		--gin_bindings="Trainer_flute.experiment_name='flailnet'"
