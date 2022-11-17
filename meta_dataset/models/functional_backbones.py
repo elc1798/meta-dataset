@@ -271,6 +271,59 @@ def bn_flute_eval(x,
     return output, params, moments
 
 
+@gin.configurable('bn_flailnet', allowlist=['film_weight_decay'])
+def bn_flailnet(x,
+                flailnet_film_embed,
+                film_weight_decay,
+                params=None,
+                moments=None,
+                is_training=True,
+                backprop_through_moments=True):
+  """Batch normalization used during training FLAIL."""
+  del is_training, backprop_through_moments  # Not needed.
+  params_keys, params_vars, moments_keys, moments_vars = [], [], [], []
+  with tf.variable_scope('batch_norm'):
+    scope_name = tf.get_variable_scope().name
+
+    # Part 1: Get the statistics (mean and var) to use during normalization.
+    # Compute the mean and var of the current batch. [1, 1, 1, num channels].
+    mean, var = tf.nn.moments(
+        x, axes=list(range(len(x.shape) - 1)), keep_dims=True)
+    num_channels = mean.shape[-1]
+
+    if moments is not None:
+      # A common use case for this: passing in the moments computed from the
+      # support set during the query set forward pass.
+      mean = moments[scope_name + '/mean']
+      var = moments[scope_name + '/var']
+
+    moments_keys += [scope_name + '/mean']
+    moments_vars += [mean]
+    moments_keys += [scope_name + '/var']
+    moments_vars += [var]
+
+    # Part 2: Determine scale/shift based on the film embedding
+    with tf.variable_scope('film_scale'):
+      film_scale, dense_params = dense(flailnet_film_embed, num_channels, film_weight_decay, activation_fn=None, params=params)
+      params_keys.extend(dense_params.keys())
+      params_vars.extend(dense_params.values())
+
+    with tf.variable_scope('film_shift'):
+      film_shift = dense(flailnet_film_embed, 1, film_weight_decay, activation_fn=None, param=params)
+      params_keys.extend(dense_params.keys())
+      params_vars.extend(dense_params.values())
+    # Reshape to [1, 1, 1, num_channels].
+    film_scale = tf.reshape(film_scale, [1, 1, 1, -1])
+    film_shift = tf.reshape(film_shift, [1, 1, 1, -1])
+
+    # Part 3: Perform batch normalization with the calculated film scale/shift
+    output = tf.nn.batch_normalization(x, mean, var, film_shift, film_scale, 0.00001)
+
+    params = collections.OrderedDict(zip(params_keys, params_vars))
+    moments = collections.OrderedDict(zip(moments_keys, moments_vars))
+    return output, params, moments
+
+
 # TODO(tylerzhu): Accumulate batch norm statistics (moving {var, mean})
 # during training and use them during testing. However need to be careful
 # about leaking information across episodes.
@@ -470,7 +523,8 @@ def dense(x, output_size, weight_decay, activation_fn=tf.nn.relu, params=None):
 
   x = tf.nn.xw_plus_b(x, w, b)
   params = collections.OrderedDict(zip([w_name, b_name], [w, b]))
-  x = activation_fn(x)
+  if activation_fn is not None:
+    x = activation_fn(x)
   return x, params
 
 
@@ -587,6 +641,55 @@ def conv_bn(
   return x, params, moments
 
 
+def flailnet_conv_bn(
+    x,
+    flailnet_film_embed,
+    conv_size,
+    depth,
+    stride,
+    weight_decay,
+    film_shift=0,
+    film_scale=1,
+    padding='SAME',
+    params=None,
+    moments=None,
+    is_training=True,
+    rate=1,
+    backprop_through_moments=True
+):
+  """A block that performs convolution, followed by batch-norm."""
+  params_keys, params_vars = [], []
+  moments_keys, moments_vars = [], []
+  x, conv_params = conv(
+      x,
+      conv_size,
+      depth,
+      stride,
+      weight_decay,
+      padding=padding,
+      params=params,
+      rate=rate)
+  params_keys.extend(conv_params.keys())
+  params_vars.extend(conv_params.values())
+
+  x, bn_params, bn_moments = bn_flailnet(
+      x,
+      flailnet_film_embed,
+      params=params,
+      moments=moments,
+      is_training=is_training,
+      backprop_through_moments=backprop_through_moments)
+  params_keys.extend(bn_params.keys())
+  params_vars.extend(bn_params.values())
+  moments_keys.extend(bn_moments.keys())
+  moments_vars.extend(bn_moments.values())
+
+  params = collections.OrderedDict(zip(params_keys, params_vars))
+  moments = collections.OrderedDict(zip(moments_keys, moments_vars))
+
+  return x, params, moments
+
+
 def bottleneck(
     x,
     depth,
@@ -674,6 +777,61 @@ def bottleneck(
   moments = collections.OrderedDict(zip(moments_keys, moments_vars))
   return x, params, moments
 
+
+@gin.configurable('flailnet_film_generator', allowlist=['flailnet_embed_dim'])
+def flailnet_film_generator(
+    x,
+    is_training,
+    weight_decay,
+    scope,
+    flailnet_embed_dim=1024,
+    reuse=tf.AUTO_REUSE,
+    params=None,
+    backprop_through_moments=True,
+    use_bounded_activation=False
+):
+  """Returns an embedding of the input image used to generate arbitrary FiLM parameters for any flail_bn layer
+  """
+  x = tf.stop_gradient(x)
+  params_keys, params_vars = [], []
+
+  with tf.variable_scope(scope, reuse=reuse):
+    def _film_gen_conv(_x_in, kernel_size, filters_out, stride=1):
+      h, conv_params = conv(
+        _x_in,
+        [kernel_size, kernel_size],
+        filters_out,
+        stride,
+        weight_decay,
+        params=params,
+        is_training=is_training,
+        backprop_through_moments=backprop_through_moments,
+        film_selector=None)
+      params_keys.extend(conv_params.keys())
+      params_vars.extend(conv_params.values())
+      return h, conv_params
+
+    with tf.variable_scope('film_gen_conv1'):
+      h = _film_gen_conv(x, 7, 64, stride=2)
+      h = relu(h, use_bounded_activation=use_bounded_activation)
+    with tf.variable_scope('film_gen_conv2'):
+      h = _film_gen_conv(h, 7, 64, stride=1)
+      h = relu(h, use_bounded_activation=use_bounded_activation)
+    with tf.variable_scope('film_gen_conv_reduce'):
+      h = _film_gen_conv(h, 5, 1, stride=1)
+      h = relu(h, use_bounded_activation=use_bounded_activation)
+    with tf.variable_scope('film_gen_batch_reduce'):
+      # Trick - convolve using the batch dim as filter dim
+      h = tf.transpose(h, perm=[3, 1, 2, 0])
+      h = _film_gen_conv(h, 1, 1, stride=1)
+      h = relu(h, use_bounded_activation=use_bounded_activation)
+    with tf.variable_scope('film_dense'):
+      film_embed, dense_params = dense(h, flailnet_embed_dim, weight_decay, params=params)
+      params_keys.extend(dense_params.keys())
+      params_vars.extend(dense_params.values())
+    params = collections.OrderedDict(zip(params_keys, params_vars))
+    return {'film_embed': film_embed,
+            'params': params}
 
 def _resnet(
     x,
