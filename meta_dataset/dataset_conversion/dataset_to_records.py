@@ -40,6 +40,7 @@ import itertools
 import json
 import operator
 import os
+import sys
 import traceback
 
 from absl import logging
@@ -55,6 +56,7 @@ from six.moves import range
 import six.moves.cPickle as pkl
 import tensorflow.compat.v1 as tf
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 # Datasets in the same order as reported in the article.
 # 'ilsvrc_2012_data_root' is already defined in imagenet_specification.py.
@@ -279,17 +281,31 @@ def write_tfrecord_from_npy_single_channel(class_npy_file, class_label,
     imgs = imgs.astype(np.uint8)
     imgs *= 255
 
-  writer = tf.python_io.TFRecordWriter(output_path)
-  # Takes a row each time, i.e. a different image (of the same class_label).
-  for image in imgs:
-    img = load_image(image)
-    # Compress to JPEG before writing
-    buf = io.BytesIO()
-    img.save(buf, format='JPEG')
-    buf.seek(0)
-    write_example(buf.getvalue(), class_label, writer)
+  def try_create_file(try_num=0):
+    if try_num == 3:
+      raise Exception(f"Retry limit hit on {output_path}")
+    writer = tf.python_io.TFRecordWriter(output_path)
+    # Takes a row each time, i.e. a different image (of the same class_label).
+    for image in imgs:
+      img = load_image(image)
+      # Compress to JPEG before writing
+      buf = io.BytesIO()
+      img.save(buf, format='JPEG')
+      buf.seek(0)
+      write_example(buf.getvalue(), class_label, writer)
+    writer.close()
 
-  writer.close()
+    try:
+      [1 for _ in tf.compat.v1.io.tf_record_iterator(output_path)]
+    except KeyboardInterrupt:
+      sys.exit(0)
+    except Exception as ex:
+      with logging_redirect_tqdm():
+        logging.info(f"{type(ex).__name__} occurred on written file {output_path}")
+      os.remove(output_path)
+      try_create_file(try_num=try_num+1)
+
+  try_create_file()
   return len(imgs)
 
 
@@ -369,23 +385,37 @@ def write_tfrecord_from_image_files(class_files,
       image_bytes = buf.getvalue()
     return image_bytes
 
-  writer = tf.python_io.TFRecordWriter(output_path)
-  written_images_count = 0
-  for i, path in enumerate(class_files):
-    bbox = bboxes[i] if bboxes is not None else None
-    try:
-      img = load_and_process_image(path, bbox)
-    except (IOError, tf.errors.PermissionDeniedError) as e:
-      if skip_on_error:
-        logging.warn('While trying to load file %s, got error: %s', path, e)
+  def try_create_file(try_num=0):
+    if try_num == 3:
+      raise Exception(f"Retry limit hit on {output_path}")
+    writer = tf.python_io.TFRecordWriter(output_path)
+    written_images_count = 0
+    for i, path in enumerate(class_files):
+      bbox = bboxes[i] if bboxes is not None else None
+      try:
+        img = load_and_process_image(path, bbox)
+      except (IOError, tf.errors.PermissionDeniedError) as e:
+        if skip_on_error:
+          logging.warn('While trying to load file %s, got error: %s', path, e)
+        else:
+          raise
       else:
-        raise
-    else:
-      # This gets executed only if no Exception was raised
-      write_example(img, class_label, writer)
-      written_images_count += 1
+        # This gets executed only if no Exception was raised
+        write_example(img, class_label, writer)
+        written_images_count += 1
+    writer.close()
 
-  writer.close()
+    try:
+      [1 for _ in tf.compat.v1.io.tf_record_iterator(output_path)]
+    except KeyboardInterrupt:
+      sys.exit(0)
+    except Exception as ex:
+      logging.info(f"{type(ex).__name__} occurred on written file {output_path}")
+      os.remove(output_path)
+      return try_create_file(try_num=try_num+1)
+    return written_images_count
+
+  written_images_count = try_create_file()
   return written_images_count
 
 
