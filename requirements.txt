@@ -26,6 +26,7 @@ ipdb==0.13.9
 ipython==8.5.0
 jedi==0.18.1
 joblib==1.2.0
+keras==2.10.0
 kiwisolver==1.4.4
 matplotlib==3.6.1
 matplotlib-inline==0.1.6
@@ -57,8 +58,10 @@ scipy>=1.0.0
 six==1.16.0
 sklearn
 stack-data==0.5.1
-tensorflow-datasets
-tensorflow-gpu
+tensorboard==2.10
+tensorflow-datasets==4.7.0
+tensorflow-estimator==2.10.0
+tensorflow-gpu==2.10.1
 tensorflow_probability <= 0.7
 tf-models-official
 tokenizers==0.13.1

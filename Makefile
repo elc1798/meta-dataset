@@ -37,6 +37,12 @@ else ifeq ($(DATASET), mscoco)
     DATA_SUBDIR := mscoco
 endif
 
+ifeq ($(RESUME), 1)
+    RESUME_FLAG := "--reload_checkpoint_gin_config"
+else
+    RESUME_FLAG := ""
+endif
+
 JQ_REMOVE_PATH := jq --sort-keys 'del(.path)'
 
 .PHONY: preprocess_data
@@ -71,4 +77,4 @@ flailnet:
 		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
 		--alsologtostderr \
 		--gin_config=meta_dataset/learn/gin/default/flailnet.gin \
-		--gin_bindings="Trainer_flute.experiment_name='flailnet'"
+		--gin_bindings="Trainer_flute.experiment_name='flailnet'" $(RESUME_FLAG) $(EXTRA_ARGS)
