@@ -38,9 +38,16 @@ else ifeq ($(DATASET), mscoco)
 endif
 
 ifeq ($(RESUME), 1)
-    RESUME_FLAG := "--reload_checkpoint_gin_config"
-else
-    RESUME_FLAG := ""
+    RESUME_FLAG := --reload_checkpoint_gin_config
+endif
+
+EXPERIMENT ?= flailnet
+ifeq ($(EXPERIMENT), flailnet)
+    CHECKPOINT_SUBDIR := flailnet
+    GIN_FILE := meta_dataset/learn/gin/default/flailnet.gin
+else ifeq ($(EXPERIMENT), ddc)
+    CHECKPOINT_SUBDIR := flailnet-ddc
+    GIN_FILE := meta_dataset/learn/gin/default/flailnet-ddc.gin
 endif
 
 JQ_REMOVE_PATH := jq --sort-keys 'del(.path)'
@@ -72,9 +79,9 @@ repro_flute:
 .PHONY: flailnet
 flailnet:
 	PYTHONPATH=${PYTHONPATH}:../task_adaptation python3 -m meta_dataset.train_flute \
-		--train_checkpoint_dir=$(CHECKPOINTS_DIR)/flailnet1 \
-		--summary_dir=$(CHECKPOINTS_DIR)/flailnet1 \
+		--train_checkpoint_dir=$(CHECKPOINTS_DIR)/$(CHECKPOINT_SUBDIR) \
+		--summary_dir=$(CHECKPOINTS_DIR)/$(CHECKPOINT_SUBDIR) \
 		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
 		--alsologtostderr \
-		--gin_config=meta_dataset/learn/gin/default/flailnet.gin \
-		--gin_bindings="Trainer_flute.experiment_name='flailnet'" $(RESUME_FLAG) $(EXTRA_ARGS)
+		--gin_config=$(GIN_FILE) \
+		--gin_bindings="Trainer_flute.experiment_name='$(CHECKPOINT_SUBDIR)'" $(RESUME_FLAG) $(EXTRA_ARGS)

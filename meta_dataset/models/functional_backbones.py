@@ -1144,10 +1144,11 @@ def flute_resnet(x,
       film_selector=film_selector)
 
 
-@gin.configurable('flailnet_resnet', allowlist=['weight_decay'])
+@gin.configurable('flailnet_resnet', allowlist=['weight_decay', 'num_sets'])
 def flailnet_resnet(x,
                     is_training,
                     weight_decay,
+                    num_sets=None,
                     params=None,
                     moments=None,
                     reuse=tf.AUTO_REUSE,
@@ -1157,16 +1158,22 @@ def flailnet_resnet(x,
                     max_stride=None,
                     deeplab_alignment=True,
                     keep_spatial_dims=False,
-                    film_selector=None):
+                    support_film_embed=None):
   """ResNet18 embedding function for Flailnet."""
   # flailnet_film_generator returns: {'film_embed': film_embed, 'params': params}
-  _film_embed = flailnet_film_generator(
-      x,
-      weight_decay,
-      scope,
-      reuse=tf.AUTO_REUSE,
-      params=params,
-      use_bounded_activation=use_bounded_activation)
+  _new_params = dict()
+  if support_film_embed is None:
+    _film_embed = flailnet_film_generator(
+        x,
+        weight_decay,
+        scope,
+        reuse=tf.AUTO_REUSE,
+        params=params,
+        use_bounded_activation=use_bounded_activation)
+    _new_params.update(_film_embed["params"])
+    _film_embed = _film_embed["film_embed"]
+  else:
+    _film_embed = tf.stop_gradient(support_film_embed)
   #resnet returns: {'embeddings': x, 'params': params, 'moments': moments}
   rn18 = _resnet(
       x,
@@ -1182,11 +1189,17 @@ def flailnet_resnet(x,
       max_stride=max_stride,
       deeplab_alignment=deeplab_alignment,
       keep_spatial_dims=keep_spatial_dims,
-      film_selector=FlailnetFilmSelector(_film_embed["film_embed"]))
+      film_selector=FlailnetFilmSelector(_film_embed))
   # Update the params dict - Note that params are OrderedDicts so _film_embed params should come first
-  params = _film_embed["params"]
-  params.update(rn18["params"])
-  rn18["params"] = params
+  _new_params.update(rn18["params"])
+  rn18["film_embed"] = _film_embed
+  if num_sets is not None:
+      # Data Distribution Classifier Head
+      with tf.variable_scope('ddc_head', reuse=reuse):
+          ddc_logits, dense_params = dense(_film_embed, num_sets, weight_decay, activation_fn=None, params=params)
+          _new_params.update(dense_params)
+          rn18["ddc_logits"] = ddc_logits
+  rn18["params"] = _new_params
   return rn18
 
 

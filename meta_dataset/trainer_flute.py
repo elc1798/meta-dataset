@@ -85,6 +85,7 @@ DATASET_CONDITIONAL_LEARNERS = [
     baseline_learners.DatasetConditionalBaselineLearner,
     metric_learners.DatasetConditionalPrototypicalNetworkLearner,
     baseline_learners.DatasetLearner,
+    baseline_learners.FlailnetDDCLearner,
 ]
 
 
@@ -753,11 +754,26 @@ class Trainer(object):
           one_hot_source = tf.expand_dims(tf.one_hot(source, depth=num_sets), 0)
           onehot_labels = one_hot_source
 
-        predictions_dist = self.learners[split].forward_pass(*args)
-        loss_dist = self.learners[split].compute_loss(
-            predictions=predictions_dist, onehot_labels=onehot_labels, **kwargs)
-        accuracy_dist = self.learners[split].compute_accuracy(
-            predictions=predictions_dist, onehot_labels=onehot_labels, **kwargs)
+        is_flailnet_ddc = issubclass(self.learners[split].__class__, baseline_learners.FlailnetDDCLearner)
+        logging.info(f"{self.learners[split].__class__.__name__}: is_flailnet_ddc={is_flailnet_ddc}")
+
+        if not is_flailnet_ddc:
+          predictions_dist = self.learners[split].forward_pass(*args)
+          loss_dist = self.learners[split].compute_loss(
+              predictions=predictions_dist,
+              onehot_labels=onehot_labels, **kwargs)
+          accuracy_dist = self.learners[split].compute_accuracy(
+              predictions=predictions_dist,
+              onehot_labels=onehot_labels, **kwargs)
+        else:
+          predictions_dist, ddc_logits = self.learners[split].forward_pass(*args)
+          loss_dist = self.learners[split].compute_loss(
+              predictions=predictions_dist,
+              ddc_logits=ddc_logits,
+              onehot_labels=onehot_labels, **kwargs)
+          accuracy_dist = self.learners[split].compute_accuracy(
+              predictions=predictions_dist,
+              onehot_labels=onehot_labels, **kwargs)
         episode_info = self.get_episode_info(data)
         return {
             'predictions': predictions_dist,

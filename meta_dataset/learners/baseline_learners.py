@@ -231,6 +231,61 @@ class DatasetConditionalBaselineLearner(BaselineLearner):
 
 
 @gin.configurable
+class FlailnetDDCLearner(DatasetConditionalBaselineLearner):
+  def __init__(self, num_sets, *args, **kwargs):
+    super(FlailnetDDCLearner, self).__init__(*args, **kwargs)
+
+  def forward_pass(self, data, source, *args, **kwargs):
+    self.forward_pass_fc = functools.partial(
+        self.forward_pass_fc, source=source)
+
+    if self.is_training:
+      images = data.images
+      embeddings_params_moments = self.embedding_fn(images, self.is_training)
+      support_embeddings = embeddings_params_moments['embeddings']
+      support_logits = self.forward_pass_fc(support_embeddings)
+      return support_logits, embeddings_params_moments["ddc_logits"]
+    else:
+      support_embeddings_params_moments = self.embedding_fn(
+          data.support_images, self.is_training)
+      support_embeddings = support_embeddings_params_moments['embeddings']
+      support_set_moments = None
+      if not self.transductive_batch_norm:
+        support_set_moments = support_embeddings_params_moments['moments']
+      query_embeddings = self.embedding_fn(
+          data.query_images,
+          self.is_training,
+          moments=support_set_moments,
+          backprop_through_moments=self.backprop_through_moments,
+          support_film_embed=support_embeddings_params_moments["film_embed"])
+      query_embeddings = query_embeddings['embeddings']
+
+      # TODO(eringrant): The `BaselineFinetuneLearner` subclass is not yet
+      # refactored to obey the interface of `Learner.compute_logits`.
+      if self.obeys_compute_logits_interface:
+        query_logits = self.compute_logits(support_embeddings, query_embeddings,
+                                           data.onehot_support_labels)
+      else:
+        query_logits = self.compute_logits(data)  # pylint: disable=no-value-for-parameter
+
+      return query_logits, query_embeddings["ddc_logits"]
+
+  def compute_loss(self, onehot_labels, predictions, ddc_logits, source):
+    # Restrict the one-hot labels to the range relevant for the given source.
+    pred_loss = super(FlailnetDDCLearner, self).compute_loss(onehot_labels, predictions, source)
+
+    onehot_source = tf.expand_dims(tf.one_hot(source, depth=self.num_sets), 0)
+    ddc_loss = tf.losses.softmax_cross_entropy(
+        onehot_labels=onehot_source,
+        logits=ddc_logits,
+        reduction=tf.losses.Reduction.NONE)
+    return pred_loss + ddc_loss
+
+  def compute_accuracy(self, onehot_labels, predictions, source):
+    return super(FlailnetDDCLearner, self).compute_accuracy(onehot_labels, predictions, source)
+
+
+@gin.configurable
 class DatasetLearner(learner_base.BatchLearner):
   """A Learner for the dataset prediction task."""
 
