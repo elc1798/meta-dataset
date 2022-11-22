@@ -1,0 +1,10 @@
+FLUTE (base network): 12858561
+FLUTE (DDC): 150344
+FLUTE (Total): 13008905 (13M)
+
+# Large has embed_dim = 1024
+FLAILNet (Large): 24779209
+
+# Small has embed_dim = 64
+FLAILNet (Small, [64, 64]): 13738249 (5.6% more weights than FLUTE)
+FLAILNet (Small, [32, 32]): 13582217 <- Seems n_filters not impactful.

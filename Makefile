@@ -48,6 +48,9 @@ ifeq ($(EXPERIMENT), flailnet)
 else ifeq ($(EXPERIMENT), ddc)
     CHECKPOINT_SUBDIR := flailnet-ddc
     GIN_FILE := meta_dataset/learn/gin/default/flailnet-ddc.gin
+else ifeq ($(EXPERIMENT), ddc-small)
+    CHECKPOINT_SUBDIR := flailnet-ddc-small
+    GIN_FILE := meta_dataset/learn/gin/default/flailnet-ddc-small.gin
 endif
 
 JQ_REMOVE_PATH := jq --sort-keys 'del(.path)'
@@ -74,6 +77,17 @@ repro_flute:
 		--alsologtostderr \
 		--gin_config=meta_dataset/learn/gin/default/flute.gin \
 		--gin_bindings="Trainer_flute.experiment_name='flute'"
+
+
+.PHONY: repro_flute_ddc
+repro_flute_ddc:
+	PYTHONPATH=${PYTHONPATH}:../task_adaptation python3 -m meta_dataset.train_flute \
+		--train_checkpoint_dir=$(CHECKPOINTS_DIR)/flute_repro_ddc \
+		--summary_dir=$(CHECKPOINTS_DIR)/flute_repro_ddc \
+		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
+		--alsologtostderr \
+		--gin_config=meta_dataset/learn/gin/default/flute_dataset_classifier.gin \
+		--gin_bindings="Trainer_flute.experiment_name='flute_dataset_classifier'"
 
 
 .PHONY: flailnet

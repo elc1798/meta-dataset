@@ -142,6 +142,15 @@ def main(unused_argv):
     logging.info('Full Gin configurations:\n%s', gin.config_str())
     raise e
 
+  total_parameters = 0
+  for variable in tf.trainable_variables():
+    v_shape = variable.get_shape()
+    _prod = 1
+    for _dim in v_shape:
+      _prod *= _dim if type(_dim) is int else _dim.value
+    total_parameters += _prod
+  logging.info(f"Total number of parameters in model: {total_parameters}")
+
   # All configurable objects/functions should have been instantiated/called.
   # TODO(evcu): Tie saving of Gin configuration at training and evaluation time.
   logging.info('Operative Gin configurations:\n%s', gin.operative_config_str())

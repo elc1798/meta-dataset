@@ -798,11 +798,12 @@ def bottleneck(
   return x, params, moments
 
 
-@gin.configurable('flailnet_film_generator', allowlist=['flailnet_embed_dim'])
+@gin.configurable('flailnet_film_generator', allowlist=['flailnet_embed_dim', 'flailnet_n_filters'])
 def flailnet_film_generator(
     x,
     weight_decay,
     scope,
+    flailnet_n_filters=(64, 64),
     flailnet_embed_dim=1024,
     reuse=tf.AUTO_REUSE,
     params=None,
@@ -827,10 +828,10 @@ def flailnet_film_generator(
       return h
 
     with tf.variable_scope('film_gen_conv1'):
-      h = _film_gen_conv(x, 7, 64, stride=2)
+      h = _film_gen_conv(x, 7, flailnet_n_filters[0], stride=2)
       h = relu(h, use_bounded_activation=use_bounded_activation)
     with tf.variable_scope('film_gen_conv2'):
-      h = _film_gen_conv(h, 7, 64, stride=1)
+      h = _film_gen_conv(h, 7, flailnet_n_filters[1], stride=1)
       h = relu(h, use_bounded_activation=use_bounded_activation)
     with tf.variable_scope('film_gen_conv_reduce'):
       h = _film_gen_conv(h, 5, 1, stride=1)
