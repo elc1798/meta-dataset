@@ -8,3 +8,6 @@ FLAILNet (Large): 24779209
 # Small has embed_dim = 64
 FLAILNet (Small, [64, 64]): 13738249 (5.6% more weights than FLUTE)
 FLAILNet (Small, [32, 32]): 13582217 <- Seems n_filters not impactful.
+
+# Deep-Set-Encoder (small) (embed_dim=64)
+13563401 (Less than DDC-Small!)
