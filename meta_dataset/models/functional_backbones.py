@@ -798,7 +798,8 @@ def bottleneck(
   return x, params, moments
 
 
-@gin.configurable('flailnet_film_generator', allowlist=['flailnet_embed_dim', 'flailnet_n_filters'])
+@gin.configurable('flailnet_film_generator', allowlist=['flailnet_embed_dim',
+                                                        'flailnet_n_filters'])
 def flailnet_film_generator(
     x,
     weight_decay,
@@ -855,6 +856,21 @@ def flailnet_film_generator(
     params = collections.OrderedDict(zip(params_keys, params_vars))
     return {'film_embed': film_embed,
             'params': params}
+
+@gin.configurable('flailnet_film_generator_dse', allowlist=['flailnet_embed_dim'])
+def flailnet_film_generator_dse(
+    x,
+    weight_decay,
+    scope,
+    flailnet_embed_dim=64,
+    reuse=tf.AUTO_REUSE,
+    params=None,
+    use_bounded_activation=False
+):
+  x = tf.stop_gradient(x)
+  film_embed = deep_set_encoder(x, weight_decay, encode_dim=flailnet_embed_dim)
+  return {'film_embed': film_embed,
+          'params': dict()}
 
 def _resnet(
     x,
@@ -1077,12 +1093,12 @@ def bn_for_deep_set_encoder(x,
     return output
 
 
-def deep_set_encoder(x, weight_decay):
+def deep_set_encoder(x, weight_decay, encode_dim=64):
   """Returns a deep set encoding of x."""
   h = x
   for i in range(5):
     with tf.variable_scope('set_encoder_{}'.format(i + 1), reuse=tf.AUTO_REUSE):
-      h, _ = conv(h, [3, 3], 64, 1, weight_decay)
+      h, _ = conv(h, [3, 3], encode_dim, 1, weight_decay)
       h = bn_for_deep_set_encoder(h, weight_decay)
       h = relu(h)
       h = tf.nn.max_pool(
@@ -1093,7 +1109,7 @@ def deep_set_encoder(x, weight_decay):
   out = tf.nn.avg_pool2d(h, h.shape[1], h.shape[1], 'SAME')
   # Average over the batch size: [1, 1, 64].
   out = tf.reduce_mean(out, axis=0)
-  out = tf.reshape(out, [1, 64])  # to make the shape known.
+  out = tf.reshape(out, [1, encode_dim])  # to make the shape known.
   return out
 
 
@@ -1145,10 +1161,13 @@ def flute_resnet(x,
       film_selector=film_selector)
 
 
-@gin.configurable('flailnet_resnet', allowlist=['weight_decay', 'num_sets'])
+@gin.configurable('flailnet_resnet', allowlist=['weight_decay',
+                                                'num_sets',
+                                                'use_dse',])
 def flailnet_resnet(x,
                     is_training,
                     weight_decay,
+                    use_dse=False,
                     num_sets=None,
                     params=None,
                     moments=None,
@@ -1164,7 +1183,11 @@ def flailnet_resnet(x,
   # flailnet_film_generator returns: {'film_embed': film_embed, 'params': params}
   _new_params = dict()
   if support_film_embed is None:
-    _film_embed = flailnet_film_generator(
+    if use_dse:
+      film_gen_fn = flailnet_film_generator_dse
+    else:
+      film_gen_fn = flailnet_film_generator
+    _film_embed = film_gen_fn(
         x,
         weight_decay,
         scope,

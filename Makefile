@@ -51,6 +51,9 @@ else ifeq ($(EXPERIMENT), ddc)
 else ifeq ($(EXPERIMENT), ddc-small)
     CHECKPOINT_SUBDIR := flailnet-ddc-small
     GIN_FILE := meta_dataset/learn/gin/default/flailnet-ddc-small.gin
+else ifeq ($(EXPERIMENT), dse-small)
+    CHECKPOINT_SUBDIR := flailnet-dse-small
+    GIN_FILE := meta_dataset/learn/gin/default/flailnet-dse-small.gin
 endif
 
 JQ_REMOVE_PATH := jq --sort-keys 'del(.path)'
