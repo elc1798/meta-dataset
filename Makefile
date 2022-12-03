@@ -51,6 +51,7 @@ else ifeq ($(EXPERIMENT), ddc)
 else ifeq ($(EXPERIMENT), ddc-small)
     CHECKPOINT_SUBDIR := flailnet-ddc-small
     GIN_FILE := meta_dataset/learn/gin/default/flailnet-ddc-small.gin
+    ITER ?= 612000
 else ifeq ($(EXPERIMENT), dse-small)
     CHECKPOINT_SUBDIR := flailnet-dse-small
     GIN_FILE := meta_dataset/learn/gin/default/flailnet-dse-small.gin
@@ -102,3 +103,16 @@ flailnet:
 		--alsologtostderr \
 		--gin_config=$(GIN_FILE) \
 		--gin_bindings="Trainer_flute.experiment_name='$(CHECKPOINT_SUBDIR)'" $(RESUME_FLAG) $(EXTRA_ARGS)
+
+
+.PHONY: evaluate
+evaluate:
+	PYTHONPATH=${PYTHONPATH}:../task_adaptation python3 -m meta_dataset.train_flute \
+		--is_training=False \
+		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
+		--summary_dir=$(CHECKPOINTS_DIR)/test \
+		--alsologtostderr \
+		--gin_config=meta_dataset/learn/gin/best/flailnet.gin \
+		--gin_bindings="Trainer_flute.experiment_name='$(CHECKPOINT_SUBDIR)'" \
+		--gin_bindings="Trainer_flute.checkpoint_to_restore='$(CHECKPOINTS_DIR)/$(CHECKPOINT_SUBDIR)/model_$(ITER).ckpt'" \
+		--gin_bindings="benchmark.eval_datasets='$(DATASET_ID)'"

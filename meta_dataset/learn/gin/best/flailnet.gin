@@ -1,0 +1,36 @@
+include 'meta_dataset/learn/gin/setups/all.gin'
+include 'meta_dataset/learn/gin/learners/learner_config.gin'
+include 'meta_dataset/learn/gin/setups/trainer_config_flute.gin'
+include 'meta_dataset/learn/gin/setups/data_config_flute.gin'
+
+# Learner to use for evaluation (the `train_learner_class` isn't used now).
+Trainer_flute.train_learner_class = @DatasetConditionalBaselineLearner
+Trainer_flute.eval_learner_class = @FlailnetDDCPrototypicalNetworkLearner
+BaselineLearner.cosine_classifier = True
+BaselineLearner.cosine_logits_multiplier = 10.
+BaselineLearner.use_weight_norm = False
+BatchSplitReaderGetReader.add_dataset_offset = True
+BaselineLearner.knn_in_fc = False
+BaselineLearner.knn_distance = 'l2'  # Does not matter.
+
+
+# Backbone settings.
+Learner.embedding_fn = @flailnet_resnet
+flailnet_film_generator.flailnet_embed_dim = 64
+
+flailnet_resnet.weight_decay = %weight_decay
+bn_flailnet.film_weight_decay = %weight_decay
+
+flailnet_resnet.num_sets = 8  # This is just for the DDC output head
+DatasetConditionalBaselineLearner.num_sets = %num_film_sets
+FlailnetDDCLearner.num_sets = %num_film_sets
+DatasetConditionalPrototypicalNetworkLearner.num_sets = %num_film_sets
+FlailnetDDCPrototypicalNetworkLearner.num_sets = %num_film_sets  # Discarded anyway...
+
+weight_decay = 0.
+num_film_sets = 8
+
+
+DataConfig.shuffle_buffer_size = 64
+DataConfig.read_buffer_size_bytes = 524288  # 0.5 MB (1024**2 / 2)
+DataConfig.num_prefetch = 0
