@@ -568,9 +568,10 @@ class DatasetConditionalPrototypicalNetworkLearner(PrototypicalNetworkLearner):
 class FlailnetDDCPrototypicalNetworkLearner(DatasetConditionalPrototypicalNetworkLearner):
   """A Prototypical Network with Dataset Conditioning."""
 
-  def __init__(self, num_sets, *args, **kwargs):
+  def __init__(self, num_sets, *args, use_support_film=True, **kwargs):
     del num_sets
     super(FlailnetDDCPrototypicalNetworkLearner, self).__init__(*args, **kwargs)
+    self.use_support_film = use_support_film
 
   def forward_pass(self, data, source, *args, **kwargs):
     if 'source_for_classifier' in kwargs:
@@ -582,17 +583,22 @@ class FlailnetDDCPrototypicalNetworkLearner(DatasetConditionalPrototypicalNetwor
         data.support_images,
         self.is_training,
         keep_spatial_dims=self.keep_spatial_dims)
+
     support_embeddings = support_embeddings_dict['embeddings']
     support_set_moments = None
     if not self.transductive_batch_norm:
       support_set_moments = support_embeddings_dict['moments']
+    support_film_embed = None
+    if self.use_support_film:
+        support_film_embed = support_embeddings_dict['film_embed']
+
     query_embeddings_dict = self.embedding_fn(
         data.query_images,
         self.is_training,
         params=support_embeddings_dict['params'],
         moments=support_set_moments,
         keep_spatial_dims=self.keep_spatial_dims,
-        support_film_embed=support_embeddings_dict['film_embed'])
+        support_film_embed=support_film_embed)
     query_embeddings = query_embeddings_dict['embeddings']
 
     query_logits = self.compute_logits(

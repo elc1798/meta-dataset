@@ -271,13 +271,14 @@ def bn_flute_eval(x,
     return output, params, moments
 
 
-@gin.configurable('bn_flailnet', allowlist=['film_weight_decay'])
+@gin.configurable('bn_flailnet', allowlist=['film_weight_decay', 'film_learner'])
 def bn_flailnet(x,
                 flailnet_film_embed,
                 film_weight_decay,
                 params=None,
                 moments=None,
                 is_training=True,
+                film_learner=False,
                 backprop_through_moments=True):
   """Batch normalization used during training FLAIL."""
   del is_training, backprop_through_moments  # Not needed.
@@ -315,6 +316,24 @@ def bn_flailnet(x,
     # Reshape to [1, 1, 1, num_channels].
     film_scale = tf.reshape(film_scale, [1, 1, 1, -1])
     film_shift = tf.reshape(film_shift, [1, 1, 1, -1])
+
+    # For FILMLearner
+    # The following two variables are the ones that FiLMLearner will optimize
+    # for each task using the support set. These are additive offsets to the
+    # selected initialization (e.g. the proposed blending of the per-dataset
+    # sets of FiLM parameters).
+    # [1, 1, 1, num_channels].
+    if film_learner:
+      offset_for_film_learner = tf.get_variable(
+          'offset_for_film_learner',
+          shape=mean.get_shape().as_list(),
+          initializer=tf.initializers.zeros())
+      scale_for_film_learner = tf.get_variable(
+          'scale_for_film_learner',
+          shape=var.get_shape().as_list(),
+          initializer=tf.initializers.zeros())
+      film_scale += scale_for_film_learner
+      film_shift += offset_for_film_learner
 
     # Part 3: Perform batch normalization with the calculated film scale/shift
     output = tf.nn.batch_normalization(x, mean, var, film_shift, film_scale, 0.00001)

@@ -35,6 +35,15 @@ else ifeq ($(DATASET), traffic_sign)
 else ifeq ($(DATASET), mscoco)
     DATASET_ID := mscoco
     DATA_SUBDIR := mscoco
+else ifeq ($(DATASET), mnist)
+    DATASET_ID := mnist
+    DATA_SUBDIR := mnist
+else ifeq ($(DATASET), cifar10)
+    DATASET_ID := cifar10
+    DATA_SUBDIR := cifar10
+else ifeq ($(DATASET), cifar100)
+    DATASET_ID := cifar100
+    DATA_SUBDIR := cifar100
 endif
 
 ifeq ($(RESUME), 1)
@@ -42,19 +51,29 @@ ifeq ($(RESUME), 1)
 endif
 
 EXPERIMENT ?= flailnet
+GIN_DIR ?= default
 ifeq ($(EXPERIMENT), flailnet)
     CHECKPOINT_SUBDIR := flailnet
-    GIN_FILE := meta_dataset/learn/gin/default/flailnet.gin
+    GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet.gin
 else ifeq ($(EXPERIMENT), ddc)
     CHECKPOINT_SUBDIR := flailnet-ddc
-    GIN_FILE := meta_dataset/learn/gin/default/flailnet-ddc.gin
+    GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet-ddc.gin
 else ifeq ($(EXPERIMENT), ddc-small)
     CHECKPOINT_SUBDIR := flailnet-ddc-small
-    GIN_FILE := meta_dataset/learn/gin/default/flailnet-ddc-small.gin
+    GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet-ddc-small.gin
     ITER ?= 612000
 else ifeq ($(EXPERIMENT), dse-small)
     CHECKPOINT_SUBDIR := flailnet-dse-small
-    GIN_FILE := meta_dataset/learn/gin/default/flailnet-dse-small.gin
+    GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet-dse-small.gin
+    ITER ?= 618000
+else ifeq ($(EXPERIMENT), dse-small-fine-tune)
+    CHECKPOINT_SUBDIR := flailnet-dse-small
+    GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet-dse-small-tune.gin
+    ITER ?= 618000
+else ifeq ($(EXPERIMENT), dse-small-0shot)
+    CHECKPOINT_SUBDIR := flailnet-dse-small
+    GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet-dse-small-0shot.gin
+    ITER ?= 618000
 endif
 
 JQ_REMOVE_PATH := jq --sort-keys 'del(.path)'
@@ -112,7 +131,21 @@ evaluate:
 		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
 		--summary_dir=$(CHECKPOINTS_DIR)/test \
 		--alsologtostderr \
-		--gin_config=meta_dataset/learn/gin/best/flailnet.gin \
+		--gin_config=$(GIN_FILE) \
 		--gin_bindings="Trainer_flute.experiment_name='$(CHECKPOINT_SUBDIR)'" \
 		--gin_bindings="Trainer_flute.checkpoint_to_restore='$(CHECKPOINTS_DIR)/$(CHECKPOINT_SUBDIR)/model_$(ITER).ckpt'" \
+		--gin_bindings="benchmark.eval_datasets='$(DATASET_ID)'"
+
+
+.PHONY: evaluate_flute
+evaluate_flute:
+	PYTHONPATH=${PYTHONPATH}:../task_adaptation python3 -m meta_dataset.train_flute \
+		--is_training=False \
+		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
+		--summary_dir=$(CHECKPOINTS_DIR)/test \
+		--alsologtostderr \
+		--gin_config=meta_dataset/learn/gin/best/flute.gin \
+		--gin_bindings="Trainer_flute.experiment_name='flute'" \
+		--gin_bindings="Trainer_flute.checkpoint_to_restore='$(CHECKPOINTS_DIR)/flute-pretrained/flute/model_610000.ckpt'" \
+		--gin_bindings="Trainer_flute.dataset_classifier_to_restore='$(CHECKPOINTS_DIR)/flute-pretrained/blender/model_14000.ckpt'" \
 		--gin_bindings="benchmark.eval_datasets='$(DATASET_ID)'"

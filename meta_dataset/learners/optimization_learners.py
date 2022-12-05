@@ -645,7 +645,7 @@ class FLUTEFiLMLearner(learner_base.EpisodicLearner):
       debug_log: Whether to print additional information for debugging.
       **kwargs: Additional kwargs for the parent Learner class.
     """
-    if film_init not in ['scratch', 'imagenet', 'blender', 'blender_hard']:
+    if film_init not in ['scratch', 'imagenet', 'blender', 'blender_hard', 'flailnet', 'flailnet-dse']:
       raise ValueError('Unknown FiLM parameter init scheme.')
     tf.logging.info(
         'Initializing a FiLM Learner with {} steps and lr {}'.format(
@@ -679,6 +679,8 @@ class FLUTEFiLMLearner(learner_base.EpisodicLearner):
       else:
         # Take a convex combination.
         self.film_selector = tf.nn.softmax(dataset_logits, axis=-1)
+    elif self.film_init.startswith('flailnet'):
+        self.film_embed = None
 
     if self.num_steps:
       # Initial forward pass, required for the `unused_op` below and for placing
@@ -779,14 +781,31 @@ class FLUTEFiLMLearner(learner_base.EpisodicLearner):
 
     return query_logits
 
-  def _forward_pass(self, images, params=None, moments=None):
+  def _forward_pass(self, images, params=None, moments=None, is_flailnet_support=True):
     """Returns the result of the forward pass through the embedding network."""
-    return self.embedding_fn(
-        images,
-        self.is_training,
-        params=params,
-        moments=moments,
-        film_selector=self.film_selector)
+    if self.film_init.startswith('flailnet'):
+      if is_flailnet_support:
+        embed = self.embedding_fn(
+            images,
+            self.is_training,
+            params=params,
+            moments=moments)
+        self.film_embed = embed['film_embed']
+        return embed
+      else:
+        return self.embedding_fn(
+            images,
+            self.is_training,
+            params=params,
+            moments=moments)
+        # support_film_embed=self.film_embed)
+    else:
+      return self.embedding_fn(
+          images,
+          self.is_training,
+          params=params,
+          moments=moments,
+          film_selector=self.film_selector)
 
   def _compute_prototype_loss(self,
                               embeddings,
@@ -819,7 +838,7 @@ class FLUTEFiLMLearner(learner_base.EpisodicLearner):
 
   def _compute_losses(self, data, compute_on_query=False):
     """Computes the nearest-centroid loss and accuracy."""
-    support_dict = self._forward_pass(data.support_images)
+    support_dict = self._forward_pass(data.support_images, is_flailnet_support=True)
     support_embeddings = support_dict['embeddings']
     loss, acc, prototypes, _ = self._compute_prototype_loss(
         support_embeddings, data.support_labels, data.onehot_support_labels)
@@ -829,7 +848,8 @@ class FLUTEFiLMLearner(learner_base.EpisodicLearner):
       query_embeddings = self._forward_pass(
           data.query_images,
           params=support_dict['params'],
-          moments=support_dict['moments'])['embeddings']
+          moments=support_dict['moments'],
+          is_flailnet_support=False)['embeddings']
       query_loss, query_acc, _, query_logits = self._compute_prototype_loss(
           query_embeddings,
           data.query_labels,
