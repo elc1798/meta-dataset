@@ -607,5 +607,7 @@ class FlailnetDDCPrototypicalNetworkLearner(DatasetConditionalPrototypicalNetwor
         data.onehot_support_labels,
         cosine_distance=True)
 
-    return query_logits
+    return query_logits, query_embeddings_dict["ddc_logits"]
 
+  def compute_loss(self, onehot_labels, predictions, ddc_logits=None, source=None):
+    return super(FlailnetDDCPrototypicalNetworkLearner, self).compute_loss(onehot_labels, predictions)

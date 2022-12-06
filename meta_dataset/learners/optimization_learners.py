@@ -628,7 +628,7 @@ class MAMLLearner(OptimizationLearner):
 class FLUTEFiLMLearner(learner_base.EpisodicLearner):
   """A Learner that trains a new set of FiLM params for each evaluation task."""
 
-  def __init__(self, num_steps, lr, film_init, debug_log=False, **kwargs):
+  def __init__(self, num_steps, lr, film_init, zero_shot=False, debug_log=False, **kwargs):
     """Initializes a FLUTEFiLMLearner.
 
     Args:
@@ -654,6 +654,9 @@ class FLUTEFiLMLearner(learner_base.EpisodicLearner):
     self.film_init = film_init
     self.debug_log = debug_log
     self.lr = lr
+    self.zero_shot = zero_shot
+    if self.zero_shot:
+        self.num_steps = 0
     self.opt = tf.train.AdamOptimizer(lr)
     super(FLUTEFiLMLearner, self).__init__(**kwargs)
     delattr(self, 'logit_dim')
@@ -669,8 +672,10 @@ class FLUTEFiLMLearner(learner_base.EpisodicLearner):
       # following line should be changed appropriately.
       self.film_selector = 0
     elif self.film_init in ['blender', 'blender_hard']:
-      dataset_logits = functional_backbones.dataset_classifier(
-          data.support_images)
+      if self.zero_shot:
+        dataset_logits = functional_backbones.dataset_classifier(data.query_images)
+      else:
+        dataset_logits = functional_backbones.dataset_classifier(data.support_images)
       if self.film_init == 'blender_hard':
         # Select only the argmax entry.
         self.film_selector = tf.one_hot(

@@ -149,7 +149,7 @@ def main(unused_argv):
     for _dim in v_shape:
       _prod *= _dim if type(_dim) is int else _dim.value
     total_parameters += _prod
-  logging.info(f"Total number of parameters in model: {total_parameters}")
+  logging.info(f"[tag: overview] Total number of parameters in model: {total_parameters}")
 
   # All configurable objects/functions should have been instantiated/called.
   # TODO(evcu): Tie saving of Gin configuration at training and evaluation time.

@@ -188,7 +188,7 @@ def restore_or_log_informative_error(saver, sess, checkpoint_to_restore):
                   checkpoint_to_restore)
     raise e
   else:
-    logging.info('Restored from checkpoint %s.', checkpoint_to_restore)
+    logging.info('[tag: overview] Restored from checkpoint %s.', checkpoint_to_restore)
 
 
 # TODO(eringrant): Split the current `Trainer` class into `Trainer` and
@@ -578,6 +578,8 @@ class Trainer(object):
     self.losses = {}
     self.accuracies = {}
     self.episode_info = {}
+    self.ddc_logits = {}
+
     for split in self.required_splits:
       if self.distribute:
         with self.strategy.scope():
@@ -615,6 +617,7 @@ class Trainer(object):
       self.accuracies[split] = tf.reduce_mean(output['accuracy'])
       self.predictions[split] = output['predictions']
       self.episode_info[split] = output['episode_info']
+      self.ddc_logits[split] = output['ddc_logits']
 
       if split == TRAIN_SPLIT and self.is_training:
         self.train_op = output['train_op']
@@ -754,7 +757,9 @@ class Trainer(object):
           one_hot_source = tf.expand_dims(tf.one_hot(source, depth=num_sets), 0)
           onehot_labels = one_hot_source
 
-        is_flailnet_ddc = issubclass(self.learners[split].__class__, baseline_learners.FlailnetDDCLearner)
+        flailnet_ddcs = [baseline_learners.FlailnetDDCLearner, metric_learners.FlailnetDDCPrototypicalNetworkLearner]
+        is_flailnet_ddc = any(issubclass(self.learners[split].__class__, klass) for klass in flailnet_ddcs)
+
         logging.info(f"{self.learners[split].__class__.__name__}: is_flailnet_ddc={is_flailnet_ddc}")
 
         if not is_flailnet_ddc:
@@ -765,6 +770,7 @@ class Trainer(object):
           accuracy_dist = self.learners[split].compute_accuracy(
               predictions=predictions_dist,
               onehot_labels=onehot_labels, **kwargs)
+          ddc_logits = tf.constant([])
         else:
           predictions_dist, ddc_logits = self.learners[split].forward_pass(*args)
           loss_dist = self.learners[split].compute_loss(
@@ -778,6 +784,7 @@ class Trainer(object):
         return {
             'predictions': predictions_dist,
             'loss': loss_dist,
+            'ddc_logits': ddc_logits,
             'accuracy': accuracy_dist,
             'episode_info': episode_info,
         }
@@ -1723,10 +1730,17 @@ class Trainer(object):
                  split, num_eval_trials)
     accuracies = []
     total_samples = 0
+
+    flailnet_ddcs = [baseline_learners.FlailnetDDCLearner, metric_learners.FlailnetDDCPrototypicalNetworkLearner]
+    is_flailnet_ddc = any(issubclass(self.learners[split].__class__, klass) for klass in flailnet_ddcs)
+    if is_flailnet_ddc:
+      eval_ddc_logits = []
+
     for eval_trial_num in range(num_eval_trials):
       # Following is used to normalize accuracies.
-      acc, summaries = self.sess.run(
-          [self.accuracies[split], self.evaluation_summaries])
+      acc, summaries, ddc_logits = self.sess.run(
+          [self.accuracies[split], self.evaluation_summaries, self.ddc_logits[split]])
+
       # Write complete summaries during evaluation, but not training.
       # Otherwise, validation summaries become too big.
       if not self.is_training and self.summary_writer:
@@ -1737,6 +1751,9 @@ class Trainer(object):
         continue
       accuracies.append(np.mean(acc))
       total_samples += 1
+
+      if is_flailnet_ddc:
+        eval_ddc_logits.append(ddc_logits[0])
 
     logging.info('Finished evaluation.')
 
@@ -1749,8 +1766,16 @@ class Trainer(object):
 
     if not self.is_training:
       # Logging during training is handled by self.train() instead.
-      logging.info('Accuracy on the meta-%s split: %f, +/- %f.\n', split,
-                   mean_acc, ci_acc)
+      logging.info('[tag: overview] Accuracy on the meta-%s split: %f, +/- %f.\n',
+                   split,
+                   mean_acc,
+                   ci_acc)
+      if is_flailnet_ddc:
+        eval_ddc_logits = np.array(eval_ddc_logits)
+        logging.info('[tag: overview] Logits on the meta-%s split: shape (%r), average: %r ',
+                     split,
+                     eval_ddc_logits.shape,
+                     eval_ddc_logits.mean(axis=0))
 
     with tf.name_scope('trainer_metrics'):
       with tf.name_scope(split):

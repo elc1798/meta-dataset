@@ -65,15 +65,15 @@ else ifeq ($(EXPERIMENT), ddc-small)
 else ifeq ($(EXPERIMENT), dse-small)
     CHECKPOINT_SUBDIR := flailnet-dse-small
     GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet-dse-small.gin
-    ITER ?= 618000
+    ITER ?= 628000
 else ifeq ($(EXPERIMENT), dse-small-fine-tune)
     CHECKPOINT_SUBDIR := flailnet-dse-small
     GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet-dse-small-tune.gin
-    ITER ?= 618000
+    ITER ?= 628000
 else ifeq ($(EXPERIMENT), dse-small-0shot)
     CHECKPOINT_SUBDIR := flailnet-dse-small
     GIN_FILE := meta_dataset/learn/gin/$(GIN_DIR)/flailnet-dse-small-0shot.gin
-    ITER ?= 618000
+    ITER ?= 628000
 endif
 
 JQ_REMOVE_PATH := jq --sort-keys 'del(.path)'
@@ -146,6 +146,20 @@ evaluate_flute:
 		--alsologtostderr \
 		--gin_config=meta_dataset/learn/gin/best/flute.gin \
 		--gin_bindings="Trainer_flute.experiment_name='flute'" \
+		--gin_bindings="Trainer_flute.checkpoint_to_restore='$(CHECKPOINTS_DIR)/flute-pretrained/flute/model_610000.ckpt'" \
+		--gin_bindings="Trainer_flute.dataset_classifier_to_restore='$(CHECKPOINTS_DIR)/flute-pretrained/blender/model_14000.ckpt'" \
+		--gin_bindings="benchmark.eval_datasets='$(DATASET_ID)'"
+
+
+.PHONY: evaluate_flute_0shot
+evaluate_flute_0shot:
+	PYTHONPATH=${PYTHONPATH}:../task_adaptation python3 -m meta_dataset.train_flute \
+		--is_training=False \
+		--records_root_dir=$(DATA_TF2_RECORDS_DIR) \
+		--summary_dir=$(CHECKPOINTS_DIR)/test \
+		--alsologtostderr \
+		--gin_config=meta_dataset/learn/gin/best/flute-0shot.gin \
+		--gin_bindings="Trainer_flute.experiment_name='flute-0shot'" \
 		--gin_bindings="Trainer_flute.checkpoint_to_restore='$(CHECKPOINTS_DIR)/flute-pretrained/flute/model_610000.ckpt'" \
 		--gin_bindings="Trainer_flute.dataset_classifier_to_restore='$(CHECKPOINTS_DIR)/flute-pretrained/blender/model_14000.ckpt'" \
 		--gin_bindings="benchmark.eval_datasets='$(DATASET_ID)'"
